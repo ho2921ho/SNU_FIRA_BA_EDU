@@ -1,0 +1,285 @@
+---
+title: "Statistical _ BigData _ LearningTheory"
+author: "Dongkeon Oh"
+date: "2018.9.7"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+```
+
+#### **Question 3**
+
+```{r}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(ISLR)
+library(broom)
+library(knitr)
+library(MASS)
+library(boot)
+library(crossval)
+library(gbm)
+Raw3= read_excel("C:/Users/renz/Desktop/임요한 기말/data3.xlsx")
+```
+
+#### 3-1 **데이터 처리**
+**기본 전처리.**
+```{r}
+str(Raw3)
+attach(Raw3)
+# 2->1 로 변환 
+Raw3[,"k3"] <- ifelse(Raw3$k3 == 2, 0, Raw3$k3)
+# 순서가 없는 범주형 자료를 팩터로 변환.
+Raw3$sex <- as.factor(sex)
+Raw3$area <- as.factor(area)
+Raw3$ideo_self <- as.factor(ideo_self)
+# 의미가 없고, 중복된 변수 제거.
+Raw3 = Raw3[-c(1,3,4)]
+```
+
+**결측치 처리**
+**결측치 패턴 분석**
+```{r}
+require(VIM)
+aggr(Raw3,prop=FALSE,numbers=TRUE)
+```
+
+**결측치들간의 상관관계 파악.**
+```{r}
+x=as.data.frame(abs(is.na(Raw3)))
+y=apply(x,2,function(x) sum(x)>0)
+round(cor(x[y]),2)
+```
+
+결측치들간의 특별한 패턴이나 높은 상관성이 있지는 않다. <br>
+(y와 결측치들의 상관관계를 보는 것도 중요한데, 코드를 모르겠다. <br>
+서로 상관없으면 결측치를 그냥 빼면 될 것이고 상관관계가 파악되면 <br>
+적절한 추정 또는 모델를 통해 결측치를 처리해야할 것이다. <br>
+예를들어 ideo_self가 10일 때,k4가 높아지는 경향이 있으면 결측치를 추정해야하고<br>
+k5의 결측이 y와 다른 변수와 무관하면 제거해도 될 것이다.) <br>
+
+**mice패키지의 cart를 활용한 결측치 추정.**
+```{r}
+library(mice)
+miceMod <- mice(Raw3, method="logreg")
+Raw3 <- complete(miceMod)
+```
+
+0과1 사이에서 결측치의 값을 추정하는 문제이기 logistic을 통해 결측치를 추정했다. 
+
+#### **random forest 모형 적합**
+
+```{r}
+
+library(plyr)
+library(dplyr)
+library(randomForest)
+
+data <- Raw3
+
+#cross validation, using rf to predict ideo_self
+k = 10
+set.seed(1)
+data$id <- sample(1:k, nrow(data), replace = TRUE)
+list <- 1:k
+
+#데이터 프레임 초기화
+prediction <- data.frame()
+testsetCopy <- data.frame()
+
+
+#function for k fold
+#i는 1부터 10로 나눈후에 10번을 진행하도록 합니다.
+
+for(i in 1:k){
+  trainingset <- subset(data, id %in% list[-i])
+  testset <- subset(data, id %in% c(i))
+  #데이터를 10등분하고 한번 뽑은 test data가 다시 train 으로 가지 않도록 10등분 합니다.
+
+  #run a random forest model
+  mymodel <- randomForest(trainingset$ideo_self ~ ., data = trainingset,
+                          ntree = 200, importance = T)
+  #값을 저장한다. 
+  temp <- as.data.frame(predict(mymodel, testset[,-16]))
+  prediction <- rbind(prediction, temp)
+  testsetCopy <- rbind(testsetCopy, as.data.frame(testset[,16]))
+
+}
+
+
+# add predictions and actual ideo_self
+result <- cbind(prediction, testsetCopy[, 1])
+names(result) <- c("Predicted", "Actual")
+```
+
+#### **혼동행렬**
+```{r}
+library(caret)
+confusionMatrix = confusionMatrix(result$Predicted, result$Actual)
+confusionMatrix$table
+confusionMatrix$overall[1]
+confusionMatrix$overall[3:4]
+```
+##### **결과 해석**
+```{r}
+err = abs((as.numeric(result$Predicted)- as.numeric(result$Actual)))
+table(err)
+```
+결과값을 해석해보면, ideo_self의 오차를 1~2까지는 허용하면 정확도가 상당히 올라간다.<br>
+또한 혼동행렬이5일 때의 오차가 굉장히 높은 것을 확인할 수 있다. <br>
+때문에  ideo_self가 5인 경우에 한해서만 다른 모델을 적합한다면 더 나은 성능을 얻을 수도 있을 것이다. <br>
+
+```{r}
+table(result$Predicted )
+table(result$Actual)
+```
+5번을 제외하고 예측결과 실제결과를 비교하면, 실제자료에 비해 예측결과는 보수적인 입장으로 <br> 예측이 더 많이 했다는 것을 확인할 있다.  <br>
+
+#### **Question 4**
+
+```{r}
+
+Raw4 = read_excel("C:/Users/renz/Desktop/임요한 기말/data4.xlsx", sheet = 2, skip = 1)
+Raw4 = Raw4[,-1]
+attach(Raw4)
+Raw4_1 <- Raw4 %>% filter(V1 == 1)
+Raw4_0 <- Raw4 %>% filter(V1 == 0)
+par(mar= c(1,1,1,1))
+par(mfrow = c(5,10))
+for (i in 2:51){
+temp = unlist(Raw4_0[,i])
+hist(temp)
+}
+
+for (i in 2:51){
+temp = unlist(Raw4_1[,i])
+hist(temp)
+}
+par(mfrow = c(1,1))
+pairs(Raw4[1:4])
+pairs(Raw4[5:15])
+```
+
+산점도를 통해, V1과 V2,V3 간에 완벽한 함수관계가 있는 것을 확인할 수 있다. <br>
+또한 나머지 변수들의 모두 정규분포를 따르고 서로 상관도 없다. <br>
+
+```{r}
+ggplot(Raw4, aes(V2, V3, color = V1)) +
+  geom_point()
+```
+
+V2^2 + V3^3 = 4 일 때는 V1이 0이고 <br>
+V2^2 + V3^3 = 9 일 때는 V1이 1이다. <br>
+이는 간단한 알고리즘을 통해 확인할 수 있다. <br> 
+```{r}
+pred <- ifelse(round(((Raw4$V2)^2 + (Raw4$V3)^2)) == 4, 0, 1) 
+tab <- table(pred, Raw4$V1)
+tab
+```
+
+250씩 클러스터에 따라 정확하게 예측하는 것을 확인해볼 수 있다. 
+
+#### **4-1 군집분석**
+##### **kmeans**
+```{r}
+set.seed(1)
+glimpse(Raw4)
+Raw4_kmean = Raw4[-1]
+
+km.out = kmeans(Raw4_kmean,2,nstart = 20)
+km.out$cluster = ifelse(km.out$cluster == 1,0,1)
+Actual = Raw4[1]
+Predicted= km.out$cluster
+temp = cbind(Predicted, Actual)
+table(temp$Predicted ,temp$V1)
+```
+
+k-means의 성능이 안좋다. 이는 v2와 v3로 결정되는 V1의 분포가 원형이고 중첩되어 있기 때문에 발생한다.예를 들어 k-means의 시작점이 어느 점에 주어지더라도 원으로된 클러스터를 파악하지 못하고 절반을 나눈다. 따라서 예측된 값의 성능이 50퍼센트로 주어지는 것이다. <br>
+때문에 k-means는 부적절하다. 이에 대한 대안으로  v2와 v3의 제곱을 변수로 두고 svm을 돌리거나 다른 비지도 학습을 이용해 볼 수 있을 것이다. (선형모델을 사용하더라도 변수를 2차항을 두면 좋은 결과를 얻을 수 있을까? 예를 들어 y = b1x1^2+b2x2^2) <br>
+
+#### **4-2 QDA**
+```{r}
+data <- Raw4[c(1,2,3)]
+data$V1 <- as.factor(V1)
+
+k = 10
+set.seed(1)
+data$id <- sample(1:k, nrow(data), replace = TRUE)
+list <- 1:k
+
+prediction <- data.frame()
+testsetCopy <- data.frame()
+
+for(i in 1:k){
+
+  trainingset <- subset(data, id %in% list[-i])
+  testset <- subset(data, id %in% c(i))
+
+  mymodel <- qda(trainingset$V1 ~ ., data = trainingset)
+
+  temp <- as.data.frame(predict(mymodel, testset[,-1]))
+  prediction <- rbind(prediction, temp)
+  testsetCopy <- rbind(testsetCopy, as.data.frame(testset[,1]))
+}
+```
+##### **혼동행렬**
+```{r}
+library(caret)
+
+result <- cbind(prediction, testsetCopy[, 1])
+names(result) <- c("Predicted","posterior.0","posterior.1", "Actual")
+names(result)
+
+result$Actual<- as.factor(result$Actual) 
+confusionMatrix(result$Predicted, result$Actual)
+confusionMatrix = confusionMatrix(result$Predicted, result$Actual)
+```
+
+두 집단의 결정경계가 선형이 아니므로 QDA를 적합해봤다. 예상대로 높은 예측률이 확인된다. 
+(LDA를 통해서도 설명변수의 유연성을 증가시켜서 동일한 성능을 낼 수 있을까?)
+
+#### **Question 5**
+##### **igraph을 활용한 클러스터링**
+```{r}
+library(igraph)
+
+Initial.matrix <- read.csv('C:/Users/renz/Desktop/임요한 기말/data5.csv',
+                           header=TRUE, row.names=1, check.names=FALSE, na.strings = "")
+matrix <- as.matrix(Initial.matrix) 
+
+g <- graph.adjacency(matrix, mode="undirected", weighted=T)
+plot.igraph(g)
+
+cluster_spinglass(g, weights = E(g)$weight, spins=25)
+a <- cluster_fast_greedy(g, weights = E(g)$weight)
+
+index = a$membership
+
+index_party <- read_excel("C:/Users/renz/Desktop/임요한 기말/data5.xlsx", 
+                                           sheet = 2)
+index_party$cluster <- index 
+
+```
+
+igraph를 통해, 각 관측치 간의 연결의 강도를 파악해서 네트워크를 구성하고 이를 바탕으로 군집을 찾는다. 
+공동 발의된 법안의 수를 바탕으로 의원들간의 군집을 파악한 결과는 아래와 같다. 
+
+```{r}
+table(index_party$party, index_party$cluster)
+
+g <- ggplot(index_party, aes(cluster))
+g + geom_bar()
+g + geom_bar(aes(fill = party), position = "fill") + 
+    scale_fill_manual(values = c( 'darkgreen', "#0033CC", "#666666", 
+                                "#00CCFF", "#CC0000", '#FFFF00'))
+```
+
+국민의당은 주로 1집단에 포함되고, 더불어민주당은 2집단과 3집단에 주로 분포하며, 바른정당과 자유한국당은 4집단에 많이 분포한다. 이를 통해, 국민의당과 더불어민주당은 서로 다른 집단으로 확실히 구분될 만큼 공통 발의된 법안이 서로 적다는 것을 알 수 있고, 바른정당과 자유한국당은 서로 같은 집단으로 구분될 정도로 사실은 공통 발의된 법안도 많고 서로 간의 교류가 많다는 것을 확인할 수 있다. 또한 더불어 민주당이 크게 두가지 집단으로 분리되는 점이 특징적인데, 이를 통해 더불어 민주당 사이에서도 서로 다른 집단으로 분류할 만큼 계파간의 차이가 존재한다는 점을 확인해볼 수 있다.   <br> 
+
+

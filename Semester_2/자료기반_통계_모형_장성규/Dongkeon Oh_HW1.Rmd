@@ -1,0 +1,36 @@
+---
+title: "Rmarkdown exercise"
+author: "Dongkeon Oh"
+date: "2018년 8월 7일"
+output: html_document
+mainfont: "NanumGothic"
+---
+
+과제 3-1
+
+1.  통계학 **2018-1**
+1.  경제통계학 **2018-1**
+1.  데이터분석과 추론 **2018-여름**
+
+과제 3-2
+![](https://res.cloudinary.com/dk-find-out/image/upload/q_80,w_1920,f_auto/MA_00925211_gwnvzd.jpg)
+
+https://res.cloudinary.com/dk-find-out/image/upload/q_80,w_1920,f_auto/MA_00925211_gwnvzd.jpg
+
+과제 4-1
+
+```{r}
+mvmt = read.csv('C:/Users/renz/Documents/GitHub/자료기반_통계_모형/Lec1/mtmv_data_10_12.csv')
+attach(mvmt)
+lm(vote_share ~ mshare)
+```
+
+과제 4-2 
+
+```{r}
+plot(vote_share ~ mshare)
+abline(lm(vote_share ~ mshare), col = "red")
+```
+
+
+종속변수가 vote_share 반응변수가 msharet인 단순회귀분석에서, 회귀계수 검정 시 유의확률이 충분히 낮기 때문에 회귀직선이 의미있다고 할 수 있다. (검정 부분 생략)

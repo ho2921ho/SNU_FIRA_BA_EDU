@@ -1,0 +1,37 @@
+install.packages('ISLR')
+library(ISLR)
+
+
+install.packages("knitr")
+library(knitr)
+str(Carseats)
+
+setwd("C:/Tools/mygit")
+Advertising<-read.csv("Advertising.csv",head=TRUE)[,-1]
+
+str(Advertising)
+
+lm.fit=lm(sales~TV,data=Advertising)
+summary(lm.fit)
+cor(Advertising$sales, Advertising$TV)
+plot(Advertising$sales, Advertising$TV)
+
+cor(Advertising)
+pairs(Advertising)
+#https://www.math.uwaterloo.ca/~hwolkowi/matrixcookbook.pdf
+
+#
+
+library(datasets)
+library(MASS)
+library(ISLR)
+head(Credit)
+summary(Credit)
+pairs(Credit)
+
+lm.fit2 <- lm(Balance ~ Gender, data =Credit)
+summary(lm.fit2)
+
+lm.fit3 <- lm(Balance ~ Ethnicity, data =Credit)
+summary(lm.fit3)
+

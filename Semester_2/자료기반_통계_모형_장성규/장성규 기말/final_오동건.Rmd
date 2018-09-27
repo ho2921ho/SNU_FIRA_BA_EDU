@@ -1,0 +1,529 @@
+---
+title: "final"
+author: "Dongkeon Oh"
+date: "2018년 9월 4일"
+output: html_document
+---
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+```
+
+```{r}
+library(dplyr)
+library(ggmap)
+library(maps)
+library(mapdata)
+library(ggplot2)
+library(broom)
+library(knitr)
+library(MASS) 
+Raw = read.csv('C:/Users/renz/Desktop/장성규 기말/Final/mobility.csv')
+```
+
+### 1. A map of mobility
+#### a 회색조 지도. (미국 전역)
+```{r}
+ggplot(data = Raw, aes(x = Longitude, y = Latitude, col = Mobility)) +
+  geom_point() + 
+  scale_color_gradient(low="grey", high="black")
+
+```
+<br>
+mobility 가 높은 곳일 수록 진해진다. <br>
+중부 지역이 다른 지역에 비해 상대적으로 mobility가 높아 보인다. 
+
+#### b 두 범주 지도. (미국 본토) 
+```{r}
+map <- Raw %>% filter(!is.na(Raw$Mobility))
+map$MobilityCat <- ifelse(map$Mobility > 0.1, "high","low")
+map <- map %>% filter(Longitude > -145, Latitude < 50)
+ggplot(data = map, aes(x = map$Longitude, y = map$Latitude, col = map$MobilityCat)) +
+    geom_point()
+```
+<br>
+중서부 지역과 동부 지역과 뚜렷한 대비가 보인다. <br>
+그리고 서부 지역중에서도 도시가 발달한 연안은 mobility가 낮았다. <br>
+a 지도에 비해 지역에 따른 mobility의 대비가 선명하게 나타난다. 
+
+### 2. A bunch of simple regression models
+```{r}
+par(mar = rep(2, 4))
+par(mfrow = c(4,2))
+index = c(5,13,8,15,22,38,12)
+# 문제에서 제시된 항목만 단일회귀분석을 진행한다. 
+coef_table_simples = NULL
+for (i in index){
+  plot(Mobility~Raw[,i], main = names(Raw)[i], data = Raw)
+  lm.fit = lm(Mobility~Raw[,i], data = Raw)
+  abline(lm.fit, col = "red")
+  temp = tidy(lm(Raw$Mobility~Raw[,i]))[2,]
+  temp$term = names(Raw)[i]
+  coef_table_simples = rbind(coef_table_simples,temp)  
+  
+}
+
+kable(coef_table_simples, caption = "A bunch of simple regression models")
+```
+
+#### 2-1 log변환이 필요한 변수: population
+
+```{r}
+Raw$Population <-log(Raw$Population)
+plot(Mobility~Population, data = Raw)
+```
+
+#### 2-2 적합하지 않은 변수(높은 p-value 값): income
+일반적으로 소득이 높으면 계층적 이동성이 높을 것이라고 생각하기 쉽다. <br>
+그러나 단일회귀 결과 소득은 계층적 이동성을 설명하는데 유의미하지 않다. <br> (그 이유는 무엇인가?)
+
+### 3. All things considered
+#### a. remove unappropriate variables : ID, 주이름, 동네이름, 위도, 경도  
+
+```{r}
+Raw_use <- Raw[-c(1,2,4,42,43)]
+lm_mul = lm(Mobility ~., data = Raw_use)
+coef_table_multiple = tidy(lm_mul)
+```
+
+#### b ID를 빼야하는 이유.
+ ID 커뮤니티 식별코드는 어떠한 인과관계에 의한 것이 아니라 구분을 위해 "랜덤하게" 주어진 값이기 때문에 반응변수와 상관관계 없어야 한다. <br>
+ 
+#### c 그 외 변수를 뺀 이유.
+동네 이름 또한 커뮤니티 식별코드 마찬가지 이유로 제거했다. <br>
+미국의 주, 위도, 경도 또한 "그 자체"로는 지역적 구분의 의미만 있기 때문에 반응변수를 해석할 때 어려움이 있기 때문에 제거했다. <br> (지역적 구분이 반응변수를 설명하는 적절한 변수가 될 수 있는가?) <br> (예를 들어 평균기온과 위도)
+
+#### d unappropriate variables를 제외한 경우와 그렇지 않은 경우의 회귀계수 비교. 
+```{r}
+kable(coef_table_simples, caption = "coef table simple regressions")
+kable(coef_table_multiple [c(2,10,5,12,19,35,9),], caption = "coef table multiple regression")
+```
+
+
+
+#### d-1 부호가 변한 변수: population
+poplation의 분산이 커지면서 회귀계수의 부호가 변화했다. <br> (그 이유는 무엇인가?)
+
+#### d-2 유의확률이 유의미하게 높게 변한 변수: population, share01,School_spending
+population, share01,School_spending 세 개의 변수는 단일회귀에서는 유의미했지만, <br>
+다중회귀분석에서는 더이상 유의미하지 않다. <br> (그 이유는 무엇인가?)
+
+#### e 다중공선성 분석.
+
+##### e-1 공선성이 있는 것으로 의심되는 변수를 확인.
+
+```{r}
+library(car)
+vif(lm_mul)
+print(attr(vif(lm_mul),"names")[vif(lm_mul) > 10])
+```
+총 8개의 변수의 vif가 10을 넘는다. 이 변수들은 공산성이 의심된다. <br>
+
+##### e-2 산점도를 통해 어떤 변수가 공산성이 있는지를 특정.
+
+```{r}
+index = vif(lm_mul) > 10
+pairs(Raw_use[-1][,index])
+```
+<br>
+첫번째로 seg_income과 seg_poverty, seg_affluence가 서로 선형관계가 있음을 확인할 수 이다.  모두 소득에 따른 지역분화의 정도를 나타내는 지표이기 때문에 서로 상관관계를 갖는 것이 타당하다. 따라서 세 변수를 평균을 내어 seg_wealth 라는 변수를 만들어 하나의 변수로 처리한다. <br>
+두번째로 Gini가 share01와 Gini_99변수와 각각 선형관계가 있는 반면, share01과 Gini_99변수는 선형관계가 없다. 따라서 Gini변수를 제거한다.상위 1퍼센트에 부가 몰릴수록 지니계수가 높아지기 때문에 Gini와 share01이 상관관계를 갖는 것은 당연하다. 또한 지니계수가 높을 수록 소득 불평등이 크다는 의미이기 때문에  Gini_99 또한 Gini와 상관성을 갖는다. 다만, share01과 gini_99는 상관성이 낮은데, 이는 상위 1퍼센트의 부의 집중이 나머지 99퍼센트끼리의 소득불평등과 상관이 없다는 의미이다. 이는 한 집단 내에서 부의 분배가 언제나 역피라미드식으로 smooth하게 이루어지지는 않다는 점을 시사한다. <br> 
+(해석의 비약은 없는가?) <br>
+마지막으로 single_mothers변수, Gini_99변수, Black 사이의 선형성이 확인된다.세가지 변수가 서로 상관성을 갖는 것은 명백하지만 세 변수가 의미하는 바가 다르기 때문에 segment처럼 단일 변수로 처리하기 어려움이 있다. 세 변수 중 한 변수를 제거해야한다. 어떤 변수를 선택해야할 지 잘 모르겠어서 vif를 가장 잘 개선하는 single_mother 변수를 제거했다. <br>
+(세 변수 사이에서의 선택이 자의적인가?) <br>
+(이혼율과 single_mother의 공선성이 나타나지 않는 이유?) <br>
+
+
+##### e-3 공산성 제거를 위한 변수 선택.
+```{r}
+attach(Raw)
+sum(is.na(Seg_affluence))
+sum(is.na(Seg_income))
+sum(is.na(Seg_poverty))
+Raw_use$Seg_wealth = (Seg_affluence+Seg_income+Seg_poverty)/3
+
+Raw_unvif = subset(Raw_use, select = - c(Seg_affluence,Seg_income,Seg_poverty,Gini,Single_mothers))
+lm_mul_unvif = lm(Mobility~., data = Raw_unvif)
+vif(lm_mul_unvif)
+detach(Raw)
+```
+변수 조정 결과, 모든 변수의 vif가 10미만으로 조정되었다. 
+
+### 4.Please in my front yard
+#### a  결측치의 갯수 확인.
+
+```{r}
+attach(Raw)
+sum(is.na(Colleges))
+sum(is.na(Tuition))
+sum(is.na(Graduation))
+detach(Raw)
+```
+
+      
+#### b 결측치의 무작위성 확인
+```{r}
+map_na = Raw
+attach(map_na)
+map_na$is.NA <- ifelse(is.na(Colleges) | is.na(Tuition) | is.na(Graduation), "NA", "nonNA") 
+ggplot(data = map_na, aes(x = log(Population) ,y =Mobility, color = is.NA)) +
+  geom_point()
+detach(map_na)
+```
+<br> 인구가 적은 지역은 결측치가 많은 경향이 있다. 
+<br> 이는 대학과 같은 상위교육기관이 인구가 적은 집단에 있지 않고 인구가 많은 도시 지역에 몰려 있기 때문으로 추정된다.
+
+#### c 새로운 범주형 변수 생성. 
+다른 집단에서 대학을 졸업했을 수도 있고, 등록금이 무상인 경우도 있을 수 있기 때문에<br>
+1인당 대학수가 NA인 집단만 대학이 없는 곳으로 판단했다. <br>
+```{r}
+Raw_unvif$HE <- ifelse(is.na(Raw_unvif$Colleges) == TRUE,FALSE,TRUE)
+Raw_unvif$Colleges[is.na(Raw_unvif$Colleges)] <- 0 
+Raw_unvif$Tuition[is.na(Raw_unvif$Tuition)] <- 0 
+Raw_unvif$Graduation[is.na(Raw_unvif$Graduation)] <- 0 
+```
+결측치 값을 0으로 바꾸고 HE 변수를 추가했다.
+
+### 5. 새로운 다중회귀분석
+
+```{r}
+lm_mul_new = lm(Mobility~., data = Raw_unvif)
+summary(lm_mul_new)
+```
+유의하지 않은 변수들이 많아서 변수선택을 한다. 
+
+#### 5-1 최상의 부분 집합 선택
+
+```{r}
+library(leaps)
+lm_fit_full = regsubsets(Mobility~., data = Raw_unvif , nvmax = 35)
+lm_summary = summary(lm_fit_full)
+attach(lm_summary)
+
+which.max(adjr2)
+which.min(cp)
+which.min(bic)
+
+par(mfrow = c(2,2))
+plot(rsq, xlab = "Number of Variables", ylab = "RSS", main = "RSS", type = "l")
+plot(adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", main = "Adjusted RSq", type = "l")
+points(20,adjr2[20], col = "red", cex = 2, pch = 20)
+plot(cp, xlab = "Number of Variables", ylab = "Cp",main = "Cp", type = "l")
+points(17,cp[17], col = "red", cex = 2, pch = 20)
+plot(bic, xlab = "Number of Variables", ylab = "BIC",main = "BIC",type = "l")
+points(13,bic[13], col = "red", cex = 2, pch = 20)
+
+```
+
+
+검정 MSE에 대한 여러가지 추정 지표를 통해 확인 조정된 R^2는 20일 때 가장 크고, Cp는 17일 때 가장 낮고 BIC는 13일때 가장 낮고 그 뒤로 계속 커지는 것을 확인할 수 있었다. <br>
+BIC가 가장 낮은 경우인 13개 일때, 세가지 지표가 최적치와 큰 차이가 나지 않기 때문에  변수가 13개 사용된 서브셋을 선택한다. (모델 선택이 감각적이지는 않는가?) <br> 
+(실제로는 11개인 모델을 사용했는데, 이는 HS_dropout 의 결측치가 너무 많았기 때문에 이를 제외하기 위함이었다. 
+실제 검정 지표상에서도 변수가 11일때, 큰 차이가 나지 않는다.)
+
+```{r}
+coef(lm_fit_full,11)
+```
+
+위와 같은 변수들이 선택 되었다. 다음은 이 변수들 만을 가지고 다시 다중회귀분석을 한다. 
+
+#### 5-2 선택된 변수로 다중회귀분석.
+
+```{r}
+
+index = attr(coef(lm_fit_full,11), "names")[2:12]
+index[12] <- "Mobility"
+Raw_final = Raw_unvif[,index]
+lm_final = lm(Mobility ~ ., data = Raw_final)
+summary(lm_final)
+ta = tidy(lm_final)
+
+kable(ta, caption = "coef table final multiple regression")
+```
+
+
+모든 회귀 계수들의 p-value 값이 낮아 통계적으로 유의미해졌고 <br>
+조정된 R스퀘어 값도 높아진 것을 확인할 수 있다. <br>
+
+### 6. 예측된 값을 지도상에 표현하고 실제 값과 비교.
+
+```{r}
+
+# 실제 지도
+map <- Raw %>% filter(!is.na(Raw$Mobility))
+map$MobilityCat <- ifelse(map$Mobility > 0.1, "high","low")
+map <- map %>% filter(Longitude > -145, Latitude < 50)
+ggplot(data = map, aes(x = map$Longitude, y = map$Latitude, col = map$MobilityCat)) +
+    geom_point()
+
+# 예측 지도
+temp = Raw_final
+temp$Longitude  <- Raw$Longitude
+temp$Latitude  <- Raw$Latitude
+temp$Name <- Raw$Name
+
+map_predict <- na.omit(temp)
+yhat <- predict(lm_final)
+map_predict$predicted_Mobility <- yhat
+map_predict$MobilityCat <- ifelse(map_predict$predicted_Mobility > 0.1, "high","low")
+map_predict <-map_predict %>% filter(Longitude > -145, Latitude < 50)
+ggplot(data = map_predict, aes(x = map_predict$Longitude, y = map_predict$Latitude, col = map_predict$MobilityCat)) +
+    geom_point()
+
+```
+<br>
+누락된 값이 있어서 모든 관측치에 대한 예측치가 찍히지는 않았다. <br>
+하지만, 찍힌 점들에 한해 실제값과 예측값을 비교해보면 유사한 패턴이 보인다. <br>
+
+### 7. 예측구간과 신뢰구간
+#### a. Pittsburgh의 Mobility의 실제값과 예측값.
+```{r}
+temp = Raw %>% filter(Name == "Pittsburgh")
+temp$Mobility
+temp <- map_predict %>% filter(Name == "Pittsburgh")
+temp$predicted_Mobility
+
+```
+실제값은 0.09514869이고 예측값은 0.09422633으로 거의 유사하다.
+
+#### b. 폭력범죄율 변화에 따른 Mobility의 변화.
+
+```{r}
+Pittsburgh <- map_predict %>% filter(Name == "Pittsburgh")
+Pittsburgh$Violent_crime
+coef(lm_final)[10]
+```
+만일 범죄율이 두배 증가해서 0.004가되면, 범죄율이 0.002 증가한다.
+따라서 Mobility가 -0.0066(회귀계수가 -3.3이므로) 정도 감소한다. <br>
+반면 범죄율이 절반이 돼서 0.001이 되면, 범죄율이 0.001 감소한다. 따라서 Mobility는 0.0033 만큼 증가한다. <br>
+
+#### c. 신뢰구간
+```{r}
+
+predict(lm_final, newdata = Pittsburgh, interval = "confidence" )
+
+```
+
+#### d. 예측구간
+```{r}
+predict(lm_final, newdata = Pittsburgh, interval = "prediction" )
+```
+
+신뢰구간은 반응 변수의 평균의 불확실성을 수량화하는데 사용한다.
+이는 [0.08763612 0.1008165]구간 중 95퍼센트는 피츠버그와 같은 조건을 가진 관측치들의 실제 평균을 포함한다. <br>
+예측구간은 특정 반응 변수의 불확실성을 수량하는데 사용한다.
+이는 [0.03862444 0.1498282] 구간 중 95퍼센트는 이 도시에 대한 실제값을 포함한다. <br> 
+
+### 8. After making proper allowances 
+#### a. 잔차지도
+
+```{r}
+lm_final = lm(Mobility ~ ., data = Raw_final)
+
+
+# 잔차지도
+temp = Raw_final
+temp$Longitude  <- Raw$Longitude
+temp$Latitude  <- Raw$Latitude
+temp$Name <- Raw$Name
+
+
+map_residual<- na.omit(temp)
+map_residual$residuals <- lm_final$residuals
+map_residual <-map_residual %>% filter(Longitude > -145, Latitude < 50)
+ggplot(data = map_residual, aes(x = map_residual$Longitude, y = map_residual$Latitude, col = map_residual$residuals)) +
+    geom_point() 
+```
+<br>
+잔차은 값들이 중부지역중에서도 북부에 몰려있는 것을 확인할 수 있다. 
+
+#### b. 상위 5위와 하위 5위
+```{r}
+
+low <- map_residual %>% dplyr::select(Name, residuals, Longitude, Latitude) %>%
+    arrange(residuals) %>% head(5)
+
+high <- map_residual %>% dplyr::select(Name, residuals, Longitude, Latitude) %>%
+    arrange(desc(residuals)) %>% head(5)
+
+map_hl = rbind(low,high)
+map_hl$cat = ifelse(map_hl$residuals < 0, 0, 1)
+
+plot1 <- ggplot(data = map_residual, aes(x = map_residual$Longitude, y = map_residual$Latitude, col = map_residual$residuals)) +
+    geom_point(alpha = 0.3, fill = "white") 
+
+plot2 <- plot1 + 
+geom_text(x=high$Longitude[1], y = high$Latitude[1], label = high$Name[1], col = "black",size = 3) +
+geom_text(x=high$Longitude[2], y = high$Latitude[2], label = high$Name[2], col = "black",size = 3) +
+geom_text(x=high$Longitude[3], y = high$Latitude[3], label = high$Name[3], col = "black",size = 3) +
+geom_text(x=high$Longitude[4], y = high$Latitude[4], label = high$Name[4], col = "black",size = 3) +
+geom_text(x=high$Longitude[5], y = high$Latitude[5], label = high$Name[5], col = "black",size = 3) + geom_text(x=low$Longitude[1], y = low$Latitude[1], label = low$Name[1], col = "red",size = 3) +
+geom_text(x=low$Longitude[2], y = low$Latitude[2], label = low$Name[2], col = "red",size = 3) +
+geom_text(x=low$Longitude[3], y = low$Latitude[3], label = low$Name[3], col = "red",size = 3) +
+geom_text(x=low$Longitude[4], y = low$Latitude[4], label = low$Name[4], col = "red",size = 3) +
+geom_text(x=low$Longitude[5], y = low$Latitude[5], label = low$Name[5], col = "red",size = 3)
+
+
+
+print(plot2)
+
+```
+<br>
+상위 관측치는 검은색으로 표시했고, 하위 관측치는 빨간색으로 표시했다. 
+상위와 하위 관측치는 모두 중부에 몰려있고 그 중에서도 상위관측치는 중부중에서도 상위에 위치하고 하위 관측치는 아래에 분포한다.
+<br>
+
+### 9. 예측값과 실제값 비교.
+#### a. y-yhat
+```{r}
+index = as.numeric(unique(attr(yhat, "names")))
+y = Raw$Mobility[index ]
+plot(y~yhat)
+abline(a = 0, b = 1, col = "red")
+```
+<br>
+y와  yhat이 그래프 상에서 기울기가 1인 직선에 가까울 수록 좋은 결과로 볼 수 있다. <br>
+경제적 이동성이 작을 경우, 예측을 잘하지만 경제적 이동성이 커질 수록 예측의 정확도가 떨어진다. <br>
+
+```{r}
+residuals = y - yhat
+plot(residuals~yhat)
+abline(h=0, col = "red")
+```
+<br>
+잔차와 예측치의 그래프이다. 잔차가 0일 수록 예측이 정확하다.
+잔차도에서 뚜렷한 패턴(0에 대칭)이 없기 때문에 오차항이 서로 상관이 없다는 가정은 적합하다. <br>
+그러나 상기에 기술한 바와 같이, 경제적 이동성이 커질 수록 오차의 분산이 커지는 경향이 확인된다.
+이는 선형모델의 오차항의 등분산성 가정과 맞지 않다. 
+따라서 y의 log 변환 등 유연성 증가를 통해 모델의 정확성을 향상시킬 수 있을 것이다. <br>
+
+
+### 10. cross-validation, bootstrap, smoothing 
+#### a. middle class 를 이용한 단위회귀분석
+```{r}
+attach(Raw)
+lm_mid = lm(Mobility~Middle_class)
+summary(lm_mid)
+pred_mid <- predict(lm_mid , Raw , interval = "prediction")
+str(pred_mid)
+detach(Raw)
+
+
+colnames(pred_mid) <- c("fit_pred", "lwr_pred", "upr_pred")
+Raw_10 <- cbind(Raw, pred_mid) 
+
+conf_mid <- predict(lm_mid ,Raw, interval = "confidence")
+colnames(conf_mid) <- c("fit_conf", "lwr_conf", "upr_conf")
+Raw_10 <- cbind(Raw_10, conf_mid) 
+
+ggplot(Raw_10 , aes(x = Middle_class)) + 
+  geom_ribbon(aes(ymin = lwr_pred, ymax = upr_pred), 
+              fill = "yellow", alpha = 0.2) + 
+  geom_ribbon(aes(ymin = lwr_conf, ymax = upr_conf),
+              fill = "blue", alpha = 0.4) +
+  geom_point(aes(y = Mobility), colour = "black", size = 1) + 
+  geom_line(aes(y = fit_pred), colour = "red", size = 0.7)
+
+plot(lm_mid)
+
+
+```
+<br>
+qqplot을 확인해보면, noise의 분포가 정규분포가 아님을 확인할 수 있다. 데이터의 양 끝으로 갈수록 가정이 점차 깨지는데, 이는 회귀 그래프 상에서 신뢰구간이 뒤로 갈수록 넓어지는 것과 관련된다. <br>
+또한 잔차도 상에서 잔차의 패턴이 확인되는데, 이차함수 꼴을 하고 있다. 따라서 설명변수의 2차항을 추가해 유연성을 증가시키면 편향이 줄어들어
+더 좋은 모델이 될 것이다. <br>
+
+#### b. resampling.
+```{r}
+library(data.table)
+## mean
+dat_boot2 <- list() 
+
+for(i in 1:500){
+  dat_boot2[[i]] <- Raw_final %>% 
+    sample_n(size = 100) %>%
+    summarise(mean_mobility = mean(Mobility, na.rm = T), mean_class = mean(Middle_class, na.rm = T))
+}
+
+dat_boot2 = data.table::rbindlist(dat_boot2)
+model2 = lm(mean_mobility ~ mean_class, data = dat_boot2)
+pred_con2 = predict(model2, newdata = dat_boot2, interval = 'confidence')
+pred_pre2 = predict(model2, newdata = dat_boot2, interval = 'prediction')
+
+plot(mean_mobility ~ mean_class, data = dat_boot2, pch = 16, cex = 0.5)
+lines(dat_boot2$mean_class, pred_con2[,"lwr"], lty="dashed", col="blue")
+lines(dat_boot2$mean_class, pred_con2[,"upr"], lty="dashed", col="blue")
+lines(dat_boot2$mean_class, pred_pre2[,"lwr"], col="red")
+lines(dat_boot2$mean_class, pred_pre2[,"upr"], col="red")
+
+par(mfrow = c(1,1))
+
+```
+붓스트랩을 통해 신뢰구간과 예측구간을 그렸다. 예측구간은 신뢰구간에 비해 더 넓은데, 이는 
+관측치들간의 분산으로 인한 것이다. <br>
+또한 예측구간은 끝으로 갈 수록 더 넓어지는데, 이는 관측치가 줄어들어서 평균에 대한 분산이 커지기 때문이다. 
+
+#### c-1 함수 준비.
+```{r}
+resampler <- function(data) {
+  n <- nrow(data)
+  resample.rows <- sample(1:n,size=n,replace=TRUE)
+  return(data[resample.rows,])
+}
+
+spline.estimator <- function(data,m=300) {
+  fit <- smooth.spline(x=data[,1],y=data[,2], cv = TRUE)
+  eval.grid <- seq(from=min(data[,1]),to=max(data[,1]),length.out=m)
+  return(predict(fit,x=eval.grid)$y) # We only want the predicted values
+}
+
+spline.cis <- function(data,B,alpha=0.05,m=300) {
+  spline.main <- spline.estimator(data,m=m)
+  spline.boots <- replicate(B,spline.estimator(resampler(data),m=m))
+  cis.lower <- 2*spline.main - apply(spline.boots,1,quantile,probs=1-alpha/2)
+  cis.upper <- 2*spline.main - apply(spline.boots,1,quantile,probs=alpha/2)
+  return(list(main.curve=spline.main,lower.ci=cis.lower,upper.ci=cis.upper,
+              x=seq(from=min(data[,1]),to=max(data[,1]),length.out=m)))
+}
+
+```
+
+#### c-2 스플라인 실행.
+```{r}
+par(mfrow = c(1,1))
+library(splines)
+library(bigsplines)
+#data
+par(mfrow = c(2,1))
+attach(Raw_final)
+a <- Middle_class[!is.na(Middle_class)]
+b <- Mobility[!is.na(Middle_class)]
+ab <- data.frame(cbind(a,b))
+detach(Raw_final)
+attach(Raw_final)
+#run and plot
+par(mfrow = c(1,1))
+sp.cis <- spline.cis(ab, B=1000,alpha=0.05,m=100)
+plot(ab[,1],ab[,2], cex = 0.5, main = "Smoothing Spline by CV",
+     xlab = "Middle_class", ylab = "Mobility")
+lines(x=sp.cis$x,y=sp.cis$main.curve, col = "purple", lwd=2)
+lines(x=sp.cis$x,y=sp.cis$lower.ci, lty=2, col = "purple")
+lines(x=sp.cis$x,y=sp.cis$upper.ci, lty=2, col = "purple")
+abline(v=c(0.3,0.4,0.5,0.6,0.7),lty=2,col="green")
+legend("topleft",("Smoothing Splines"),col="purple",lwd=2)
+legend("topright",(" Confidence Interval"),col="purple",lwd=2,lty=3)
+detach(Raw_final)
+
+
+```
+스무딩을 한 결과 데이터에 더욱 잘 맞는데, 이는 앞서 확인했던 것 처럼 설명변수와 반응변수의 관계가 선형이 아니었기 때문이다. <br> 따라서 모델을 가정하지 않는 스플라인의 적합결과가 
+더욱 좋다. <br> 하지만, 끝에 있는 관측치의 경우, 개별 관측치의 분산 때문에 신뢰구간이 더욱 커진다.  
+
+#### d.
+```{r}
+plot(lm_mid)
+shapiro.test(resid(lm_mid))
+```
+잔차도에서도 패턴이 확인되고, qqplot에서도 잔차의 정규성이 확인되지 않는다. 
+따라서 정규성과 선형성을 가정하는 선형모델은 부적합하고 스플라인 활용이 대안이 될 수 있다. <br>
+정규성 검정하는 shapiro에서도  p-value가 낮기 때문에 귀무가설인 "데이터가 정규분포를 따른다." 
+를 기각할 수 있고, 데이터가 정규성을 따르지 않은 것을 파악할 수 있다. 
